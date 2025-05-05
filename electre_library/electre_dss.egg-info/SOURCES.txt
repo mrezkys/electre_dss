@@ -1,0 +1,9 @@
+README.md
+setup.py
+electre_dss/__init__.py
+electre_dss/solver.py
+electre_dss.egg-info/PKG-INFO
+electre_dss.egg-info/SOURCES.txt
+electre_dss.egg-info/dependency_links.txt
+electre_dss.egg-info/requires.txt
+electre_dss.egg-info/top_level.txt

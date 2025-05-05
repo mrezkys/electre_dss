@@ -34,7 +34,7 @@ class ElectreSolver:
              raise ValueError("Number of criteria names must match number of criteria")
 
         # Intermediate results storage
-        self._normalized_matrix = None
+        self._raw_normalized_matrix = None # ADDED: Store raw r_ij
         self._weighted_matrix = None
         self._concordance_matrix = None
         self._discordance_matrix = None
@@ -45,47 +45,65 @@ class ElectreSolver:
         self._aggregate_dominance_matrix = None
         self._ranking = None
 
+        # ADDED: Detailed storage for report-like output
+        self._concordance_sets = {}
+        self._discordance_sets = {}
+        self._discordance_max_diffs = {}
+        self._discordance_global_max_diff = None
+
     def _normalize(self):
         """Performs Euclidean normalization on the decision matrix."""
         norms = np.sqrt(np.sum(self.decision_matrix**2, axis=0))
         # Avoid division by zero if a criterion column is all zeros
         norms[norms == 0] = 1e-9 # Replace 0 with a very small number
-        self._normalized_matrix = self.decision_matrix / norms
+        self._raw_normalized_matrix = self.decision_matrix / norms # Store raw r_ij
 
     def _calculate_weighted_matrix(self):
         """Calculates the weighted normalized decision matrix."""
-        if self._normalized_matrix is None:
+        if self._raw_normalized_matrix is None:
             self._normalize()
-        self._weighted_matrix = self._normalized_matrix * self.weights
+        # Use the stored raw normalized matrix
+        self._weighted_matrix = self._raw_normalized_matrix * self.weights
 
     def _calculate_concordance(self):
-        """Calculates the concordance matrix."""
+        """Calculates the concordance matrix and stores concordance sets."""
         if self._weighted_matrix is None:
             self._calculate_weighted_matrix()
 
         self._concordance_matrix = np.zeros((self.num_alternatives, self.num_alternatives))
+        self._concordance_sets = {} # Initialize/clear
 
         for k in range(self.num_alternatives):
             for l in range(self.num_alternatives):
                 if k == l: continue
                 concordance_sum = 0
+                current_concordance_set = [] # Store criteria names for this pair
                 for j in range(self.num_criteria):
                     vkj = self._weighted_matrix[k, j]
                     vlj = self._weighted_matrix[l, j]
+                    is_concordant = False
                     if self.criteria_types[j] == 'benefit':
                         if vkj >= vlj:
-                            concordance_sum += self.weights[j]
+                            is_concordant = True
                     elif self.criteria_types[j] == 'cost':
                         if vkj <= vlj:
-                            concordance_sum += self.weights[j]
+                            is_concordant = True
+                    
+                    if is_concordant:
+                         concordance_sum += self.weights[j]
+                         current_concordance_set.append(self.criteria_names[j]) # Store name
+
                 self._concordance_matrix[k, l] = concordance_sum
+                self._concordance_sets[(k, l)] = current_concordance_set # Store the set
 
     def _calculate_discordance(self):
-        """Calculates the discordance matrix."""
+        """Calculates the discordance matrix and stores related details."""
         if self._weighted_matrix is None:
             self._calculate_weighted_matrix()
 
         self._discordance_matrix = np.zeros((self.num_alternatives, self.num_alternatives))
+        self._discordance_sets = {}
+        self._discordance_max_diffs = {}
         max_diff_overall = 0
 
         # First pass: find the overall maximum absolute difference across all pairs and criteria
@@ -93,18 +111,21 @@ class ElectreSolver:
             for l in range(self.num_alternatives):
                 if k == l: continue
                 diffs = np.abs(self._weighted_matrix[k, :] - self._weighted_matrix[l, :])
-                current_max_diff = np.max(diffs)
-                if current_max_diff > max_diff_overall:
-                    max_diff_overall = current_max_diff
+                # Need to handle empty diffs if only one criterion?
+                if diffs.size > 0:
+                    current_max_diff = np.max(diffs)
+                    if current_max_diff > max_diff_overall:
+                        max_diff_overall = current_max_diff
+                # else: handle case with 0 or 1 criterion? max_diff_overall remains 0
 
-        if max_diff_overall == 0:
-             max_diff_overall = 1 # Avoid division by zero if all values are identical
+        self._discordance_global_max_diff = max_diff_overall if max_diff_overall > 0 else 1.0
 
-        # Second pass: calculate discordance index
+        # Second pass: calculate discordance index and store sets/diffs
         for k in range(self.num_alternatives):
             for l in range(self.num_alternatives):
                 if k == l: continue
                 discordance_set_diffs = []
+                current_discordance_set = []
                 for j in range(self.num_criteria):
                     vkj = self._weighted_matrix[k, j]
                     vlj = self._weighted_matrix[l, j]
@@ -117,13 +138,18 @@ class ElectreSolver:
                             is_discordant = True
                     
                     if is_discordant:
+                        current_discordance_set.append(self.criteria_names[j])
                         discordance_set_diffs.append(np.abs(vkj - vlj))
 
+                self._discordance_sets[(k, l)] = current_discordance_set
                 if not discordance_set_diffs: # If discordance set is empty
                     self._discordance_matrix[k, l] = 0.0
+                    self._discordance_max_diffs[(k, l)] = 0.0
                 else:
                     max_discordance_diff = np.max(discordance_set_diffs)
-                    self._discordance_matrix[k, l] = max_discordance_diff / max_diff_overall
+                    self._discordance_max_diffs[(k, l)] = max_discordance_diff
+                    # Use the stored global max diff
+                    self._discordance_matrix[k, l] = max_discordance_diff / self._discordance_global_max_diff
 
     def _calculate_thresholds(self):
         """Calculates the concordance and discordance thresholds."""
@@ -199,9 +225,9 @@ class ElectreSolver:
         return self._ranking
 
     def get_intermediate_results(self):
-        """Returns a dictionary containing all intermediate calculation results."""
+        """Returns a dictionary containing intermediate and detailed calculation results."""
         return {
-            "normalized_matrix": self._normalized_matrix,
+            "raw_normalized_matrix": self._raw_normalized_matrix,
             "weighted_matrix": self._weighted_matrix,
             "concordance_matrix": self._concordance_matrix,
             "discordance_matrix": self._discordance_matrix,
@@ -210,4 +236,9 @@ class ElectreSolver:
             "concordance_dominance_matrix": self._concordance_dominance_matrix,
             "discordance_dominance_matrix": self._discordance_dominance_matrix,
             "aggregate_dominance_matrix": self._aggregate_dominance_matrix,
+            # Detailed additions
+            "concordance_sets": self._concordance_sets,
+            "discordance_sets": self._discordance_sets,
+            "discordance_max_diffs": self._discordance_max_diffs,
+            "discordance_global_max_diff": self._discordance_global_max_diff,
         } 
