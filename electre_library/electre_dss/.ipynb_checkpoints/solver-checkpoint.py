@@ -90,8 +90,8 @@ class ElectreSolver:
                             is_concordant = True
                     
                     if is_concordant:
-                        concordance_sum += self.weights[j]
-                        current_concordance_set.append(self.criteria_names[j]) # Store name
+                            concordance_sum += self.weights[j]
+                         current_concordance_set.append(self.criteria_names[j]) # Store name
 
                 self._concordance_matrix[k, l] = concordance_sum
                 self._concordance_sets[(k, l)] = current_concordance_set # Store the set
@@ -113,9 +113,9 @@ class ElectreSolver:
                 diffs = np.abs(self._weighted_matrix[k, :] - self._weighted_matrix[l, :])
                 # Need to handle empty diffs if only one criterion?
                 if diffs.size > 0:
-                    current_max_diff = np.max(diffs)
-                    if current_max_diff > max_diff_overall:
-                        max_diff_overall = current_max_diff
+                current_max_diff = np.max(diffs)
+                if current_max_diff > max_diff_overall:
+                    max_diff_overall = current_max_diff
                 # else: handle case with 0 or 1 criterion? max_diff_overall remains 0
 
         self._discordance_global_max_diff = max_diff_overall if max_diff_overall > 0 else 1.0
